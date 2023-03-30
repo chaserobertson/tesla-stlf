@@ -1,0 +1,217 @@
+---
+title: "total_load_exp"
+output: html_document
+date: "2023-03-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Specify missing value placeholder, data directory, and data filenames vector with shortnames.
+
+```{r}
+na_str <- "-99"
+data_path <- "../data"
+data_filenames <- c(
+  "au_adelaide_act.csv",
+  "au_sa_iso_satellite_pv_load_act.csv",
+  "au_sa_load_act.csv",
+  "au_sa_total_load_act.csv",
+  "au_sa_total_load_5_min.csv"
+)
+names(data_filenames) <- c("adelaide", "pv", "load", "total", "total_5")
+```
+
+Create convenience wrapper to read any of the listed files from the data directory path.
+
+```{r}
+read <- function(shortname, ...) {
+  filename <- paste(data_path, data_filenames[shortname], sep="/")
+  read.csv(filename, na.strings = na_str, ...)
+}
+```
+
+Read in total load data from 30-minute measurement era.
+
+```{r}
+total <- read("total")
+summary(total)
+```
+
+Missing values and a higher max date than expected...
+
+Convert date and time to proper datetimes.
+
+```{r}
+total$datetime <- as.POSIXct(as.character(total$date), format = "%Y%m%d", tz = "GMT")
+total$datetime <- total$datetime + (total$time %/% 100)*60*60 + (total$time %% 100)*60
+summary(total)
+```
+
+Sort by datetime and check conversion success - all increments _should_ be 30 mins * 60 = 1800 seconds.
+
+```{r}
+total <- total[order(total$datetime),]
+unique(diff(total$datetime))
+```
+
+That's unexpected. Some 5-minute timesteps. 0 timestep probably indicates duplicates.
+
+```{r}
+plot(total$datetime, type="l")
+```
+
+The issue seems to align with a certain window of time, at least.
+
+Plotting the timestep over time, with red points on missing values.
+
+```{r}
+plot(c(1800, diff(datetime)) ~ datetime, data=total, 
+     col=1+is.na(load_act), cex=0.5, ylab="Timestep (seconds)")
+legend("right", legend=c("Load present", "Load missing"), fill=c("black", "red"))
+```
+
+Values seem to be duplicated starting late 2021, and completely missing in mid-2022.
+
+Identifying the first non-30 min timestep as a potential cut-off point, hoping the other data files are sufficient for 2022 data.
+
+```{r}
+head(total[diff(total$datetime) != 1800,], 2)
+```
+
+So 5-min increments started on October 1, 2021.
+
+Checking the date of the first missing value and the last 30-min increment.
+
+```{r}
+min(total$datetime[is.na(total$load_act)])
+max(total$datetime[c(1, diff(total$datetime) == 1800) & !is.na(total$load_act)])
+```
+
+So October 1, 2021 at midnight was the first 5-min measure, with the following measurements including both 30-min measures and 5-min measures.
+
+The first missing value was also on 2021-10-01, so that day is a good candidate for a cut-off point to using the 5-min data from the other file(s).
+
+Checking the script-aggregated 5-minute timestep file.
+
+```{r}
+total_5 <- read("total_5")
+summary(total_5)
+```
+
+First thing, create a proper datetime column.
+
+```{r}
+total_5$datetime <- as.POSIXct(total_5$SETTLEMENTDATE, format="%Y/%m/%d %H:%M:%S", tz = "GMT")
+summary(total_5)
+```
+
+Nice, by some stroke of luck (or genius) the first available measure is the same time that missing values start cropping up in the other dataset.
+Also, no missing values at all in this set.
+
+```{r}
+unique(diff(total_5$datetime))
+```
+
+Beautiful. All 5-minute increments, nice and clean.
+
+Not sure how `totaldemand`/`rrp` relate to `load_act`, so let's grab the matching october data and look at them side-by-side.
+
+```{r}
+october2021 <- as.POSIXct("2021-10-01", tz="GMT")
+november2021 <- as.POSIXct("2021-11-01", tz="GMT")
+
+total_oct <- total[october2021 < total$datetime 
+                   & total$datetime <= november2021
+                   & !is.na(total$load_act),]
+summary(total_oct)
+```
+
+```{r}
+total_5_oct <- total_5[october2021 < total_5$datetime & total_5$datetime <= november2021,]
+summary(total_5_oct)
+```
+
+Based on the summary quartiles, it seems that `totaldemand == load_act`.
+
+```{r}
+all(total_oct$load_act == total_5_oct$TOTALDEMAND)
+```
+
+Nice.
+
+I was hoping to use October as an overlap month to verify the 5-min to 30-min averaging, but that doesn't seem to be an option.
+
+We should still be safe to assume that the 30-min average applies to the preceding 30 mins, rather than the following 30 mins.
+
+```{r}
+offset <- 25 * 60
+total_5_oct$dt_agg <- as.POSIXct(cut(total_5_oct$datetime, breaks="30 mins")) + offset
+head(total_5_oct, 10)
+tail(total_5_oct, 10)
+```
+
+The offset trick is not ideal, but seems to get the `cut` bins re-aligned properly.
+
+Aggregate by averaging load, now that each 5-min measure is associated with its 30-min bin.
+
+```{r}
+total_oct <- aggregate(TOTALDEMAND ~ dt_agg, total_5_oct, mean)
+c(head(total_oct$TOTALDEMAND, 1) == mean(head(total_5_oct$TOTALDEMAND, 6)), 
+      tail(total_oct$TOTALDEMAND, 1) == mean(tail(total_5_oct$TOTALDEMAND, 6))
+)
+```
+
+Confirmed that the first and last means match a simple manual calculation.
+
+Extending to the full 5-min dataset.
+
+```{r}
+offset <- 25*60
+total_5$dt_agg <- as.POSIXct(
+  cut(total_5$datetime, breaks="30 mins"), 
+  tz = "GMT") + offset
+total_post_cutoff <- aggregate(TOTALDEMAND ~ dt_agg, total_5, mean)
+unique(diff(total_post_cutoff$dt_agg))
+summary(total_post_cutoff)
+```
+
+All 5-min timesteps are now averaged to 30 mins.
+
+Now to merge into one dataframe of clean 30 min timesteps.
+
+```{r}
+total_pre_cutoff <- total[total$datetime <= october2021,]
+summary(total_pre_cutoff)
+```
+
+```{r}
+total_unified <- data.frame(
+  datetime = c(total_pre_cutoff$datetime, total_post_cutoff$dt_agg), 
+  load_act = c(total_pre_cutoff$load_act, total_post_cutoff$TOTALDEMAND)
+)
+summary(total_unified)
+```
+
+Summary looks good.
+Plotting each variable individually and together as a sanity check.
+
+```{r}
+plot(total_unified$datetime, type='l')
+```
+
+```{r}
+hist(total_unified$load_act, breaks = 10000)
+```
+
+```{r}
+plot(total_unified, type='l')
+```
+
+Looks good. Write unified total load file to data directory.
+
+```{r}
+write.csv(total_unified, file=paste(data_path, "au_sa_total_load_complete.csv", sep="/"), row.names=F)
+```
+
