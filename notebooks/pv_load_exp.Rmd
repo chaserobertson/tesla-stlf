@@ -113,3 +113,7 @@ pv[pv$date == '20220723' & pv$time >= 1300 & pv$time <= 1400,]
 D,ROOFTOP,ACTUAL,2,"2022/07/23 13:00:00",SA1,963.58,1,MEASUREMENT,"2022/07/23 13:19:35"
 D,ROOFTOP,ACTUAL,2,"2022/07/23 13:30:00",SA1,955.203,1,MEASUREMENT,"2022/07/23 13:49:38"
 ```
+
+Alas, they do not. The numbers we have may be Forecasted, or actuals estimated at a different time.
+
+The option to retrieve missing values from the source remains open but held until source details confirmed.
