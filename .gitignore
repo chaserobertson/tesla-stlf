@@ -1,3 +1,6 @@
+# Jupyter hidden files
+**/.ipynb*
+
 # MacOS silly files
 **/Icon?
 **/.DS_Store
