@@ -65,11 +65,10 @@ $$\ D= α_t^0 + α_t^1|Temp - 20.0| + α_t^2Year + ε $$
 - - - -
 ## Model
 #### 1. Model 1: $\ D_t = β_0 + s(Time_t) + β_1|Temp_t - 20.0| + β_2Year_t + ε_t $
-* is a number in the interval [0,1) 
-* is temperature
-* scaled time of the year with values in the interval [0,1)
+* $\ Time_t$ is a scaled time of the year with values in the interval [0,1)
+* $\ Temp_t$ is temperature
 * DST converted
-* daily periodic cyclic empirical function of  over the sample period 
+* $\ s(Time_t)$: daily periodic cyclic empirical function of  over the sample period 
   * the temperature independent electricity demand
   * a daily periodic cyclic empirical function of  over the sample period
   * Use GAM regression to determine the periodic function s(·)
