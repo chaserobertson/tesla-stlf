@@ -15,11 +15,12 @@ head(df)
 ```
 
 Select columns relevant to the intra-day models
+
 ```{r}
 df2 <- df[,c('datetime', 'tempc', 'net_load')]
 ```
 
-Australian Central Standard Time assumed to be the read-in default - consider as UTC to avoid DST adjustments.
+Australian Central Standard Time assumed to be the read-in default - consider as UTC to postpone DST adjustments.
 
 ```{r}
 df2$acst <- as.POSIXct(df2$datetime, format="%F %T", tz="UTC")
