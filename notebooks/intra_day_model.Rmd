@@ -1,0 +1,52 @@
+---
+title: "intra_day_preprocess"
+output: html_document
+date: "2023-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data_path <- "../data/intra_day2022.csv"
+df <- read.csv(data_path)
+head(df)
+```
+
+Execute train/test split.
+
+```{r}
+train <- df[!test_ind,]
+test <- df[test_ind,]
+c(dim(df), dim(train), dim(test))
+```
+
+Try fit Model 1.
+
+```{r}
+library(mgcv)
+
+model1 <- gam(net_load ~ s(Time, bs="cc") + abs(tempc - 20) + year,
+              data=train)
+summary(model1)
+```
+
+Try fit Model 5.
+
+TODO figure out how to implement these with mgcv correctly
+
+- s(DST) as cyclic cubic regression spline
+- w(DST) as piecewise continuous sinusoidal function
+- h(Temp*w(DST)) as...?
+- k(Year) as non-periodic spline
+
+```{r}
+model5 <- gam(net_load ~ s(DST, bs="cc") + s(tempc * s(DST, bs="cc"), bs="cc") + s(year, bs="cc"), data=train)
+summary(model5)
+```
+
+```{r}
+plot(model5)
+```
+
