@@ -30,7 +30,7 @@ $$\ Fit = Likelihood - λ * Wiggliness$$
 
 #### 4. Choosing the right smoothing parameter (λ)
 * normally we let the package do the work of selecting a smoothing parameter
-* ⭐can set manually by: ___ "sp = " argument___
+* ⭐can set manually by: ___"sp = " argument___
 ``` {r}
 gam(y ~ s(x), data = dat, sp = 0.1)
 ## OR
