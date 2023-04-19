@@ -28,7 +28,7 @@ while getopts 's:e:r:o:hv' opt; do
     o) OUTFILE="$OPTARG";;
     h) help; exit 0;;
     v) help | head -1; exit 0;;
-    :|?|h) help; exit 1;;
+    :|?) help; exit 1;; # known option missing argument, or unknown argument
   esac
 done
 shift "$(($OPTIND -1))"
@@ -43,10 +43,10 @@ echo "Retrieving $REGION from $START to $END and writing to $OUTFILE"
 # Retrieve and write first month, preserving header
 curl -s -o $OUTFILE "${URLHEAD}_${START}_${REGION}${URLTAIL}"
 
-# Filter valid months from naive integer sequence
+# Filter valid following months from naive integer sequence
 months=`seq $((START+1)) $END | egrep '^[0-9]{4}(0[1-9]|1[0-2])$'`
 
-# Retrieve each month from AEMO site
+# Retrieve and append each following month
 for month in $months; do
   url="${URLHEAD}_${month}_${REGION}${URLTAIL}"
   curl -s $url | tail -n +2 >> $OUTFILE
