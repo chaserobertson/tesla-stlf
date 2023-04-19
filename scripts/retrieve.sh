@@ -33,6 +33,12 @@ while getopts 's:e:r:o:hv' opt; do
 done
 shift "$(($OPTIND -1))"
 
+# Ensure all arguments are specified
+[ -z $START ] && echo -e 'Missing required option -s' && exit 1
+[ -z $END ] && echo -e 'Missing required option -e' && exit 1
+[ -z $REGION ] && echo -e 'Missing required option -r' && exit 1
+[ -z $OUTFILE ] && echo -e 'Missing required option -o' && exit 1
+
 # Define base URL strings
 URLHEAD="https://aemo.com.au/aemo/data/nem/priceanddemand/PRICE_AND_DEMAND"
 URLTAIL="1.csv"
@@ -40,14 +46,12 @@ URLTAIL="1.csv"
 # Alert user to options in use
 echo "Retrieving $REGION from $START to $END and writing to $OUTFILE"
 
-# Retrieve and write first month, preserving header
-curl -s -o $OUTFILE "${URLHEAD}_${START}_${REGION}${URLTAIL}"
+# Filter valid months from naive integer sequence
+months=(`seq $START $END | egrep '^[0-9]{4}(0[1-9]|1[0-2])$'`)
 
-# Filter valid following months from naive integer sequence
-months=`seq $((START+1)) $END | egrep '^[0-9]{4}(0[1-9]|1[0-2])$'`
+# Retrieve and write header only
+curl -s "${URLHEAD}_${START}_${REGION}${URLTAIL}" | head -n1 > $OUTFILE
 
-# Retrieve and append each following month
-for month in $months; do
-  url="${URLHEAD}_${month}_${REGION}${URLTAIL}"
-  curl -s $url | tail -n +2 >> $OUTFILE
-done
+# Retrieve and append sorted rows
+cmd="curl -s ${URLHEAD}_{}_${REGION}${URLTAIL} | awk 'NR!=1'"
+parallel $cmd ::: "${months[@]}"  | sort >> $OUTFILE
