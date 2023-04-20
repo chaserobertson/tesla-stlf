@@ -52,6 +52,14 @@ months=(`seq $START $END | egrep '^[0-9]{4}(0[1-9]|1[0-2])$'`)
 # Retrieve and write header only
 curl -s "${URLHEAD}_${START}_${REGION}${URLTAIL}" | head -n1 > $OUTFILE
 
-# Retrieve and append sorted rows
-cmd="curl -s ${URLHEAD}_{}_${REGION}${URLTAIL} | awk 'NR!=1'"
-parallel $cmd ::: "${months[@]}"  | sort >> $OUTFILE
+# Retrieve and append sorted rows, in parallel if available
+if which parallel >/dev/null; then
+  cmd="curl -s ${URLHEAD}_{}_${REGION}${URLTAIL} | awk 'NR!=1'"
+  parallel $cmd ::: "${months[@]}"  | sort >> $OUTFILE
+else 
+  # Could instead use curl's -Z flag to download in parallel, then merge
+  for month in ${months[@]}; do
+    url="${URLHEAD}_${month}_${REGION}${URLTAIL}"
+    curl -s $url | tail -n +2 >> $OUTFILE
+  done
+fi
