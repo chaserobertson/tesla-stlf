@@ -17,9 +17,9 @@ head(df)
 Execute train/test split.
 
 ```{r}
-train <- df[!test_ind,]
-test <- df[test_ind,]
-c(dim(df), dim(train), dim(test))
+train <- df#[!test_ind,]
+#test <- df[test_ind,]
+#c(dim(df), dim(train), dim(test))
 ```
 
 Try fit Model 1.
@@ -83,11 +83,11 @@ TODO figure out how to implement these with mgcv correctly
 - k(Year) as non-periodic spline
 
 ```{r}
-model5 <- gam(net_load ~ s(DST, bs="cc") + s(tempc * s(DST)) + s(year, bs="cc"), data=train)
-summary(model5)
+model5 <- gamm(net_load ~ s(DST, bs="cc", k=12) + s(WtdTemp, bs="tp", k=8) + s(year, bs="tp", k=7), data=train)
+summary(model5$gam)
 ```
 
 ```{r}
-plot(model5, all.terms=T)
+plot(model5$gam, all.terms=T)
 ```
 

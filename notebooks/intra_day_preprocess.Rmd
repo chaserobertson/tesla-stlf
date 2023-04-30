@@ -88,6 +88,13 @@ df5 <- cbind(df4[,c('net_load', 'tempc', 'Time', 'DST', 'year')])
 head(df5)
 ```
 
+Add time-weighted temperature.
+
+```{r}
+source("../Functions.R")
+df5$WtdTemp <- wtdtemp(df5$DST, df5$tempc)
+```
+
 Write to file
 
 ```{r}
