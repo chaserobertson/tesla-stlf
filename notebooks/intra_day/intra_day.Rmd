@@ -1,0 +1,52 @@
+---
+title: "intra_day"
+output: html_document
+date: "2023-05-01"
+---
+
+```{r}
+source("../Functions.R")
+library(mgcv)
+```
+
+
+```{r}
+## Load the data
+alldata <- read.csv("../../data/intra_day/original2014.csv")
+alldata <- alldata[,c("Demand", "Temp", "DSTTime", "Year")]
+head(alldata)
+```
+
+
+```{r}
+alldata$Temp <- round(alldata$Temp)
+alldata$WtdTemp <- wtdtemp(alldata$DSTTime, alldata$Temp)
+
+## Split into regression data and out of sample test data.
+#fitdata <- alldata[((0*288)+1):(250*288),]  
+fitdata <- alldata
+
+head(fitdata)
+```
+
+Try fit Model 5.
+
+```{r}
+gamlwmod <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear <- gamm(gamlwmod,  data = fitdata)
+summary(wtdyear$gam)$r.sq
+```
+
+```{r}
+plot(wtdyear$gam, all.terms=T)
+```
+
+```{r}
+perf <- data.frame(year=2018:2022, r.sq=0)
+for (year in perf$year) {
+  df <- read.csv(paste("../../data/intra_day/", year, ".csv", sep=""))
+  mdl <- gamm(gamlwmod,  data = df)
+  perf[perf$year==year, "r.sq"] <- summary(mdl$gam)$r.sq
+}
+perf
+```

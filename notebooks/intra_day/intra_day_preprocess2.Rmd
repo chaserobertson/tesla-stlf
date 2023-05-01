@@ -1,0 +1,82 @@
+---
+title: "intra_day_preprocess2"
+output: html_document
+date: "2023-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+df <- read.csv("../../data/merged_interpolated.csv")
+df <- df[,c('datetime', 'tempc', 'net_load')]
+names(df) <- c('dt', 'Temp', 'Demand')
+head(df)
+```
+
+Create DST timestamp with UTC+10 as the read-in default. Then remove DST offset to create ACST standard timestamp.
+
+```{r}
+df$ACDT <- as.POSIXct(paste(df$dt, "+1000"), format="%F %T %z", tz="Australia/South")
+df$ACST <- df$ACDT - ((as.POSIXlt(df$ACDT)$isdst > 0)*(60*60))
+print(mean(df$ACST != df$ACDT))
+head(df)
+```
+
+Create standardised Time variable to fit intra-day Model 1 requirements.
+
+```{r}
+ACST.lt <- as.POSIXlt(df$ACST)
+ACDT.lt <- as.POSIXlt(df$ACDT)
+# time normalised to [0, 1) via proportion of minutes per day
+df$Time <- (ACST.lt$hour*60 + ACST.lt$min) / (60*24)
+df$DSTTime <- df$Time + ((ACDT.lt$isdst!=0) / 24)
+head(df[,c("ACST", "Time", "DSTTime", "ACDT")])
+```
+
+Max DSTTime should be 1 hour greater than max Time (1/24 in standardised format).
+
+```{r}
+c(max(df$DSTTime) - max(df$Time), 1 / 24)
+```
+
+Create standardised time of the Year with range [0,1), 0 being first observation of the year and 1 being just after the final observation (by standard time). Should be calculated before weekends are removed. Resulting diff should match either 1/n_obs or a post-weekend step of 48*2/n_obs
+
+```{r}
+df$Year <- (order(ACDT.lt) - 1) / (365 * 48)
+df.week <- df[ACDT.lt$wday %in% 1:5,]
+cat("Steps:", unique(round(diff(df.week$Year), 2)), '\n')
+cat("Ideal steps:", round(c(1, 48*2) / (365*48), 2), '\n')
+```
+
+Subset to just those variables necessary for modeling.
+
+```{r}
+df.week <- df.week[,c("ACDT", "Demand", "Time", "DSTTime", "Year", "Temp")]
+head(df.week)
+```
+
+Add time-weighted temperature.
+
+```{r}
+source("./Functions.R")
+df.week$WtdTemp <- wtdtemp(df.week$DSTTime, df.week$Temp)
+head(df.week)
+```
+
+Enumerate complete year ranges.
+
+```{r}
+(breaks <- seq(min(df.week$ACDT), max(df.week$ACDT), by=(365*24*60*60)))
+```
+
+Write each complete year to file.
+
+```{r}
+for (i in 1:(length(breaks)-1)) {
+  write.csv(df.week[breaks[i] <= df.week$ACDT & df.week$ACDT <= breaks[i+1],], 
+            paste("../../data/intra_day/", 2017+i, ".csv", sep=""),
+            row.names=F)
+}
+```

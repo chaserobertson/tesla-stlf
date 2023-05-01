@@ -1,0 +1,52 @@
+---
+title: "intra_day_model5"
+output: html_document
+date: "2023-05-01"
+---
+
+Load 5-minute comprehensive preprocessed data from 2 Feb 2014 - 3 Feb 2015
+
+```{r}
+source("../Functions.R")
+
+## Load the data
+alldata <- read.csv("../../data/intra_day/original2014.csv")
+alldata$WtdTemp <- wtdtemp(alldata$DSTTime, alldata$Temp)
+
+## Split into regression data and out of sample test data.
+fitdata <- alldata[((0*288)+1):(250*288),]  
+
+head(fitdata)
+```
+
+Fit and summarise Model 5.
+
+```{r}
+library(mgcv)
+
+gamlwmod <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear <- gamm(gamlwmod,  data = fitdata)
+print(summary(wtdyear$gam))
+```
+
+Plot each smooth term.
+
+```{r}
+plot(wtdyear$gam, all.terms=T)
+```
+
+Check R^2 with temperature rounded to nearest integer.
+
+```{r}
+## Load the data
+alldata <- read.csv("../../data/intra_day/original2014.csv")
+alldata$Temp <- round(alldata$Temp)
+alldata$WtdTemp <- wtdtemp(alldata$DSTTime, alldata$Temp)
+
+## Split into regression data and out of sample test data.
+fitdata <- alldata[((0*288)+1):(250*288),]  
+
+gamlwmod <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear <- gamm(gamlwmod,  data = fitdata)
+print(summary(wtdyear$gam))
+```
