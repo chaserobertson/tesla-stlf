@@ -5,7 +5,7 @@ date: "2023-05-01"
 ---
 
 ```{r}
-source("../Functions.R")
+source("./Functions.R")
 library(mgcv)
 ```
 

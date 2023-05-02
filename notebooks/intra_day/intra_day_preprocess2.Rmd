@@ -44,7 +44,7 @@ c(max(df$DSTTime) - max(df$Time), 1 / 24)
 Create standardised time of the Year with range [0,1), 0 being first observation of the year and 1 being just after the final observation (by standard time). Should be calculated before weekends are removed. Resulting diff should match either 1/n_obs or a post-weekend step of 48*2/n_obs
 
 ```{r}
-df$Year <- (order(ACDT.lt) - 1) / (365 * 48)
+df$Year <- ((order(ACDT.lt) - 1) %% (365 * 48)) / (365 * 48)
 df.week <- df[ACDT.lt$wday %in% 1:5,]
 cat("Steps:", unique(round(diff(df.week$Year), 2)), '\n')
 cat("Ideal steps:", round(c(1, 48*2) / (365*48), 2), '\n')
