@@ -5,26 +5,24 @@ date: "2023-05-01"
 ---
 
 ```{r}
-source("./Functions.R")
+setwd("~/tesla-stlf")
+source("notebooks/intra_day/Functions.R")
 library(mgcv)
 ```
 
 Load and subset original 5-min 2014 data used by intra-day researchers.
 
 ```{r}
-alldata <- read.csv("../../data/intra_day/original2014.csv")
+alldata <- read.csv("data/intra_day/original2014.csv")
 alldata <- alldata[,c("Demand", "Temp", "DSTTime", "Year")]
 head(alldata)
 ```
 
-Compute time-weighted temperature and subset.
+Compute time-weighted temperature.
 
 ```{r}
 alldata$WtdTemp <- wtdtemp(alldata$DSTTime, alldata$Temp)
-
-fitdata <- alldata[((0*288)+1):(250*288),]  
-#fitdata <- alldata
-
+fitdata <- alldata
 head(fitdata)
 ```
 
@@ -42,12 +40,22 @@ Show smooth terms.
 plot(wtdyear$gam, all.terms=T)
 ```
 
+Apply same model to same data at 30-minute rather than 5-minute steps.
+
+```{r}
+fitdata30 <- alldata[seq(6, nrow(alldata), 6),]
+wtdyear30 <- gamm(gamlwmod,  data = fitdata30)
+summary(wtdyear30$gam)$r.sq
+```
+
+No difference in R^2: timestep should not be a factor in the following comparisons.
+
 Apply same model to each year of 30-minute SA data (with half-hour temperatures interpolated).
 
 ```{r}
 perf <- data.frame(year=2018:2022, r.sq=0)
 for (year in perf$year) {
-  df <- read.csv(paste("../../data/intra_day/", year, ".csv", sep=""))
+  df <- read.csv(paste("data/intra_day/", year, ".csv", sep=""))
   mdl <- gamm(gamlwmod,  data = df)
   perf[perf$year==year, "r.sq"] <- summary(mdl$gam)$r.sq
 }
@@ -59,7 +67,7 @@ Apply same model to each year of 30-minute NSW data (with half-hour temperatures
 ```{r}
 perf <- data.frame(year=2018:2022, r.sq=0)
 for (year in perf$year) {
-  df <- read.csv(paste("../../data/intra_day/NSW_", year, ".csv", sep=""))
+  df <- read.csv(paste("data/intra_day/NSW_", year, ".csv", sep=""))
   mdl <- gamm(gamlwmod,  data = df)
   perf[perf$year==year, "r.sq"] <- summary(mdl$gam)$r.sq
 }
