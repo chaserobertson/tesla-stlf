@@ -1,0 +1,52 @@
+
+# SA GAMM
+Apply GAMM to all years of SA data including weather covariates
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+```{r}
+require(mgcv)
+```
+
+Quick preprocess of full weather-inclusive SA dataset.
+
+```{r}
+sa.full <- read.csv("data/merged_interpolated.csv")
+# drop pv_est and total_load
+df <- sa.full[,c(1:8, 10)]
+
+# make year and Time from datetime
+df$ACDT <- as.POSIXct(paste(df$datetime, "+1000"), format="%F %T %z", tz="Australia/South")
+df$ACST <- df$ACDT - ((as.POSIXlt(df$ACDT)$isdst > 0)*(60*60))
+
+ACST.lt <- as.POSIXlt(df$ACST)
+ACDT.lt <- as.POSIXlt(df$ACDT)
+
+# time normalised to [0, 1) via proportion of minutes per day
+df$Time <- (ACST.lt$hour*60 + ACST.lt$min) / (60*24)
+df$DSTTime <- df$Time + ((ACDT.lt$isdst!=0) / 24)
+df$Year <- ((order(ACDT.lt) - 1) %% (365 * 48)) / (365 * 48)
+
+# drop text and posix datetimes
+df <- df[,-c(1, 10, 11)]
+head(df)
+```
+
+Fit GAMM with all available covariates and show R^2.
+
+```{r}
+full.form <- net_load ~  s(DSTTime, bs = "cc") + s(tempc, bs = "tp") + s(Year, bs = "tp") + s(cloud8, bs="tp") + s(windk, bs="tp") + s(wdir, bs="tp") + s(humid, bs="tp") + s(rainmm, bs="tp") + s(radkjm2, bs="tp")
+
+full.gamm <- mgcv::gamm(full.form, data=df)
+summary(full.gamm$gam)$r.sq
+```
+
+Plot smooth terms
+
+```{r}
+plot(full.gamm$gam, all.terms=T)
+```
+
