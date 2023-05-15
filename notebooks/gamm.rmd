@@ -50,3 +50,21 @@ Plot smooth terms
 plot(full.gamm$gam, all.terms=T)
 ```
 
+
+```{r}
+perf <- data.frame(year=2018:2022, r.sq=0)
+for (year in perf$year) {
+  mdl <- gamm(full.form,  data = df[ACDT.lt$year+1900 == year,])
+  perf[perf$year==year, "r.sq"] <- summary(mdl$gam)$r.sq
+}
+perf
+```
+```{r}
+summary(full.gamm$gam)
+```
+
+```{r}
+full.gamm2 <- mgcv::gamm(net_load ~  s(DSTTime, bs = "cc") + s(tempc, bs = "tp") + s(Year, bs = "tp") + s(radkjm2, bs="tp"), data=df)
+summary(full.gamm2$gam)
+```
+
