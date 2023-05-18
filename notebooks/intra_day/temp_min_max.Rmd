@@ -1,0 +1,106 @@
+---
+title: "temp_min_max"
+output: html_document
+date: "2023-05-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+```{r}
+source("notebooks/intra_day/Functions.R")
+library(mgcv)
+```
+
+Load and subset original 5-min 2014 data used by intra-day researchers.
+
+```{r}
+alldata <- read.csv("data/intra_day/original2014.csv")
+alldata <- alldata[,c("Demand", "Temp", "DSTTime", "Year")]
+head(alldata)
+```
+
+Downsample to 30-min timesteps by:
+- Choosing every 6th observation's DSTTime and Year (6 5-minute observations per 30-minutes) 
+- Averaging Demand of groups of 6 observations 
+- Choosing the daily max and min temperature via groups of 288 observations (12 obs/hr * 24 hrs)
+
+```{r}
+# create 30-minute and daily groups
+grps30 <- list(grp=rep(1:(nrow(alldata)/6), each=6))
+grps_daily <- list(grp=rep(1:(nrow(alldata)/288), each=288))
+
+# select every 6th time field
+static <- alldata[seq(6, nrow(alldata), 6), c("DSTTime", "Year")]
+# calculate average demand per 6 observations
+averaged <- aggregate(alldata$Demand, by=grps30, FUN=mean)
+
+# Choose max and min temperature per day
+temp_max_daily <- aggregate(alldata$Temp, by=grps_daily, FUN=max)
+temp_min_daily <- aggregate(alldata$Temp, by=grps_daily, FUN=min)
+
+# Bind together covariates, repeating max/min temp across each day of 30-min steps (48 per day)
+data30 <- cbind(static, Demand=averaged$x, MaxTemp=rep(temp_max_daily$x, each=48), MinTemp=rep(temp_min_daily$x, each=48))
+
+head(data30)
+```
+
+Now, calculate the time-weighted maximum and minimum temperature to replicate the intra-day model as closely as possible.
+
+```{r}
+fitdata30 <- data30
+fitdata30$WtdMaxTemp <- wtdtemp(fitdata30$DSTTime, fitdata30$MaxTemp)
+fitdata30$WtdMinTemp <- wtdtemp(fitdata30$DSTTime, fitdata30$MinTemp)
+
+head(fitdata30)
+```
+
+Fit best annual model 5.
+
+```{r}
+gamlwmod <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdMaxTemp, bs = "tp", k =8) + s(WtdMinTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear <- gamm(gamlwmod,  data = fitdata30)
+summary(wtdyear$gam)$r.sq
+```
+
+R^2 is very close to that of the model with upsampled temperatures (0.89)! 
+
+Show smooth terms.
+
+```{r}
+plot(wtdyear$gam, all.terms=T)
+```
+
+Fit the same model with the raw, unweighted min/max temperatures.
+
+```{r}
+gamlwmod2 <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(MaxTemp, bs = "tp", k =8) + s(MinTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear2 <- gamm(gamlwmod2,  data = fitdata30)
+summary(wtdyear2$gam)$r.sq
+```
+
+Show smooth terms.
+
+```{r}
+plot(wtdyear2$gam)
+```
+
+Wiggliness seems to have shifted from the temperature covariates to DST.
+
+Fit without temperature.
+
+```{r}
+gamlwmod3 <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(Year, bs = "tp", k =7)
+wtdyear3 <- gamm(gamlwmod3,  data = fitdata30)
+summary(wtdyear3$gam)$r.sq
+```
+
+A more significant drop in R2.
+
+```{r}
+plot(wtdyear3$gam)
+```
+
+Predictive power shifted to Year, reflecting only average seasonal temperatures.
