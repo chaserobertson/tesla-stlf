@@ -4,12 +4,13 @@ output: html_document
 date: "2023-04-11"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
 ```
 
 ```{r}
-df <- read.csv("../../data/merged_interpolated.csv")
+df <- read.csv("data/merged_interpolated.csv")
 df <- df[,c('datetime', 'tempc', 'net_load')]
 names(df) <- c('dt', 'Temp', 'Demand')
 head(df)
@@ -41,10 +42,19 @@ Max DSTTime should be 1 hour greater than max Time (1/24 in standardised format)
 c(max(df$DSTTime) - max(df$Time), 1 / 24)
 ```
 
-Create standardised time of the Year with range [0,1), 0 being first observation of the year and 1 being just after the final observation (by standard time). Should be calculated before weekends are removed. Resulting diff should match either 1/n_obs or a post-weekend step of 48*2/n_obs
+Create standardised time of the Year with range [0,1), 0 being first observation of the year and 1 being just after the final observation (by standard time). Also add time-weighted temperature.
 
 ```{r}
 df$Year <- ((order(ACDT.lt) - 1) %% (365 * 48)) / (365 * 48)
+
+source("notebooks/intra_day/Functions.R")
+df$WtdTemp <- wtdtemp(df$DSTTime, df$Temp)
+head(df)
+```
+
+Remove weekends. Resulting diff should match either 1/n_obs or a post-weekend step of 48*2/n_obs.
+
+```{r}
 df.week <- df[ACDT.lt$wday %in% 1:5,]
 cat("Steps:", unique(round(diff(df.week$Year), 2)), '\n')
 cat("Ideal steps:", round(c(1, 48*2) / (365*48), 2), '\n')
@@ -57,26 +67,25 @@ df.week <- df.week[,c("ACDT", "Demand", "Time", "DSTTime", "Year", "Temp")]
 head(df.week)
 ```
 
-Add time-weighted temperature.
-
-```{r}
-source("./Functions.R")
-df.week$WtdTemp <- wtdtemp(df.week$DSTTime, df.week$Temp)
-head(df.week)
-```
-
 Enumerate complete year ranges.
 
 ```{r}
 (breaks <- seq(min(df.week$ACDT), max(df.week$ACDT), by=(365*24*60*60)))
 ```
 
-Write each complete year to file.
+Write each complete year of weekdays to file.
 
 ```{r}
 for (i in 1:(length(breaks)-1)) {
   write.csv(df.week[breaks[i] <= df.week$ACDT & df.week$ACDT <= breaks[i+1],], 
-            paste("../../data/intra_day/", 2017+i, ".csv", sep=""),
+            paste("data/intra_day/", 2017+i, ".csv", sep=""),
             row.names=F)
 }
 ```
+
+Also write complete data with new fields to file.
+
+```{r}
+write.csv(df, "data/intra_day/SA_preprocessed.csv", row.names=F)
+```
+
