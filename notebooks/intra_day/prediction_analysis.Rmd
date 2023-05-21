@@ -1,0 +1,222 @@
+---
+title: "prediction_analysis"
+output: html_document
+date: "2023-05-18"
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+
+```{r message=F}
+library(mgcv)
+require(parallel)
+```
+
+Load and subset complete SA preprocessed data file.
+
+```{r}
+alldata <- read.csv("data/intra_day/SA_preprocessed.csv")[,c("dt", "Temp", "Demand", "Time", "DSTTime", "Year", "WtdTemp")]
+alldata$dt <- fasttime::fastPOSIXct(alldata$dt, tz="UTC")
+head(alldata)
+```
+
+Define model formula.
+
+```{r}
+gamlwmod <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+```
+
+Build offset matrix by # of observations and # of seconds.
+
+```{r}
+day.offset = c(day=1, week=7, month=30, year=365)
+ahead = cbind(seconds=day.offset*60*60*24, obs=day.offset*24*2)
+ahead
+```
+
+
+# 365 Day Sliding Window
+
+Build model endpoint vector - the row number of the final training observation for each model.
+
+```{r}
+endpts <- seq(ahead["year", "obs"] + 1, 
+              nrow(alldata)-ahead["year", "obs"], 
+              by=ahead["week", "obs"])
+length(endpts)
+```
+
+The above number of models can be fit on a complete year of data, with data available to predict a year ahead.
+
+Estimating time to fit a year of data and make the X-ahead predictions.
+
+```{r}
+system.time({
+  endpt <- ahead["year", "obs"]
+  train <- alldata[1:endpt,]
+  test <- alldata[(endpt + ahead[,"obs"]),]
+  model <- gamm(gamlwmod, data=train)$gam
+  pred <- predict(model, test)
+  print(length(pred))
+})
+```
+
+With ~3 seconds per model required, dealing with them all serially would take a total of around 10 minutes.
+
+Comparing looped strategy to parallel strategy on small 80-obs training sets.
+
+```{r}
+fit_pred <- function(endpt) {
+  train <- alldata[(endpt-90):endpt,]
+  test <- alldata[(endpt + ahead[,"obs"]),]
+  model <- gamm(gamlwmod, data=train)$gam
+  predict(model, test)
+}
+system.time({
+  for (endpt in endpts) {
+    fit_pred(endpt)
+  }
+})
+```
+
+```{r}
+system.time(parallel::mclapply(endpts, fit_pred))
+```
+
+The default number of cores is apparently 2, so speedup scales linearly with cores. My machine has 8 cores so let's put them to use!
+
+```{r}
+fit_pred <- function(endpt) {
+  train <- alldata[(endpt - ahead["year", "obs"]):endpt,]
+  test <- alldata[(endpt + ahead[,"obs"]),]
+  model <- gamm(gamlwmod, data=train)$gam
+  predict(model, test)
+}
+lout <- parallel::mclapply(endpts, fit_pred, mc.cores=8)
+mout <- matrix(unlist(lout), ncol=4)
+dim(mout)
+```
+
+Predictions at varying delay after model endpoint are now available for each of the models. 
+
+Now to get the true values in the same format.
+
+```{r}
+true.lout <- lapply(seq_along(endpts), function(i) alldata[names(lout[[i]]), "Demand"])
+
+true.mout <- matrix(unlist(true.lout), ncol=4)
+dim(true.mout)
+```
+
+Plot squared errors of X-ahead predictions across all models.
+
+```{r}
+sqerr.mat <- (true.mout - mout)^2
+
+matplot(sqerr.mat, type='l', main="Per-observation time-ahead squared errors", xlab="Model Number", ylab="Squared Error")
+legend("top", legend=rownames(ahead), col=1:4, lty=1:4, ncol=4)
+```
+
+That's not very informative. Maybe a density plot will be.
+
+```{r}
+plot(density(sqerr.mat[,1]), col=1, lty=1, ylim=c(0, 2e-5), xlim=c(0, 6e5),
+     main="Time-ahead Squared Error Distributions", xlab="Squared Error")
+for (i in 2:4) {
+  lines(density(sqerr.mat[,i]), col=i, lty=i)
+}
+legend("topright", legend=rownames(ahead), col=1:4, lty=1:4)
+```
+
+I suppose the "better" distributions should have a big peak and short tail. Suprisingly, week-ahead seems to be the worst.
+
+```{r}
+mse <- t(t(colMeans(sqerr.mat)))
+rownames(mse) <- rownames(ahead)
+mse
+```
+
+Mean Squared Errors agree that week-ahead prediction is the worst.
+
+Maybe plotting the residual distributions will be most informative.
+
+```{r}
+residual.mat <- mout - true.mout
+plot(density(residual.mat[,1]), col=1, lty=1, xlim=c(-800, 1000),
+     main="Time-ahead Residual Distributions", xlab="Residuals")
+for (i in 2:4) {
+  lines(density(residual.mat[,i]), col=i, lty=i)
+}
+legend("topright", legend=rownames(ahead), col=1:4, lty=1:4)
+```
+
+All but month-ahead predictions most often underestimate demand.
+
+
+# 372 Day Sliding Window
+
+Day-ahead prediction should theoretically be the best. Maybe a 372-day sliding window, which includes the previous year's previous week, will improve day-ahead.
+
+Rebuild model endpoint vector.
+
+```{r}
+days372 <- ahead["year", "obs"] + ahead["week", "obs"]
+endpts2 <- seq(days372 + 1, 
+              nrow(alldata) - ahead["year", "obs"], 
+              by=ahead["week", "obs"])
+length(endpts2)
+```
+
+Refit model prediction and squared error matrices.
+
+```{r}
+fit_pred2 <- function(endpt) {
+  train <- alldata[(endpt - days372):endpt,]
+  test <- alldata[(endpt + ahead[,"obs"]),]
+  model <- gamm(gamlwmod, data=train)$gam
+  predict(model, test)
+}
+lout2 <- parallel::mclapply(endpts2, fit_pred2, mc.cores=8)
+mout2 <- matrix(unlist(lout2), ncol=4)
+
+true.lout2 <- lapply(seq_along(endpts2),
+                    function(i) alldata[names(lout2[[i]]), "Demand"])
+true.mout2 <- matrix(unlist(true.lout2), ncol=4)
+sqerr.mat2 <- (true.mout2 - mout2)^2
+```
+
+Plot squared error distributions.
+
+```{r}
+plot(density(sqerr.mat2[,1]), col=1, lty=1, ylim=c(0, 2e-5), xlim=c(0, 6e5),
+     main="Time-ahead Squared Error Distributions", xlab="Squared Error")
+for (i in 2:4) {
+  lines(density(sqerr.mat2[,i]), col=i, lty=i)
+}
+legend("topright", legend=rownames(ahead), col=1:4, lty=1:4)
+```
+
+Show MSE.
+
+```{r}
+mse2 <- t(t(colMeans(sqerr.mat2)))
+rownames(mse2) <- rownames(ahead)
+mses <- cbind(mse, mse2)
+colnames(mses) <- c("365 days", "372 days")
+mses
+```
+
+Plot residual distributions.
+
+```{r}
+residual.mat2 <- mout2 - true.mout2
+plot(density(residual.mat2[,1]), col=1, lty=1, xlim=c(-800, 900),
+     main="Time-ahead Residual Distributions", xlab="Residuals")
+for (i in 2:4) {
+  lines(density(residual.mat2[,i]), col=i, lty=i)
+}
+legend("topright", legend=rownames(ahead), col=1:4, lty=1:4)
+```
