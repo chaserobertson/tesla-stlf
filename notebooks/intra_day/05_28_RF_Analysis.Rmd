@@ -1,0 +1,155 @@
+---
+title: "05_12_RF"
+author: "Siqi Huang"
+date: "2023-05-12"
+output: 
+  html_document:
+    theme: united
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Cleaning variables
+
+```{r}
+
+library(lubridate)
+d = read.csv("full.csv")
+d$day = day(d$ED)
+
+d = d[, !names(d) %in% c("total_load", "pv_est")]
+d = d[, !names(d) %in% c("dt", "ACDT", "ED", "DST", "yfrac")]
+
+d = na.omit(d)
+head(d)
+```
+
+# 2. Feature selection
+
+```{r}
+cor_matrix <- cor(d, method = "pearson")
+cor_matrix <- round(cor_matrix, 2)
+as.data.frame(cor_matrix)
+```
+
+```{r}
+library(corrplot)
+corrplot(cor_matrix, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+```
+
+# 3. Fitting Model
+
+Fit all data before 2023 used for training
+
+```{r}
+
+# X_train = d[d$year < 2023,][,names(d) != "demand"]
+# y_train = d[d$year < 2023,][,names(d) == "demand"]
+# X_test = d[d$year >= 2023,][,names(d) != "demand"]
+# y_test = d[d$year >= 2023,][,names(d) == "demand"]
+
+fitdata = d[d$year < 2023, ]
+tstdata = d[d$year >= 2023, ]
+
+library(randomForest)
+
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DONT RUN AGAIN
+rf = randomForest(demand~ ., fitdata)
+```
+
+# 4. By year
+
+```{r}
+
+mergedata = tstdata
+mergedata$preds = predict(rf, mergedata)
+
+
+mse = function(pre, act){mean((pre - act)^2)}
+
+R2 = function(pre, act) 1 - sum((pre - act)^2) / sum((act - mean(act))^2) 
+
+mse_year = mse(mergedata$preds, mergedata$demand)
+mse_year
+
+R2_year = R2(mergedata$preds, mergedata$demand)
+R2_year
+
+```
+
+# 5. By day
+
+```{r}
+mergedata$date <- as.Date(paste("2023", mergedata$month, mergedata$day, sep = "-"))
+sum_demand2 <- aggregate((preds-demand)^2 ~ date, mergedata, sum)
+colnames(sum_demand2)[2] <- "sum_top"
+
+daily_mean <- aggregate(demand ~ date, mergedata, mean)
+mergedata <- merge(mergedata, daily_mean, by = "date", suffixes = c("", "_mean"))
+
+sum_demand3 = aggregate((demand -demand_mean)^2 ~ date, mergedata, sum)
+colnames(sum_demand3)[2] <- "sum_bottom"
+
+mix_data = merge(sum_demand2, sum_demand3, by = "date")
+mix_data$R2 = 1-mix_data$sum_top/mix_data$sum_bottom
+# aggregated_data <- aggregate(. ~ date, mergedata, sum)
+```
+
+### 5.1 R-square by day
+
+```{r}
+library(plotly)
+plot <- plot_ly(mix_data, x = ~date, y = ~R2, type = "scatter", mode = "lines")
+plot
+```
+
+### 5.2 Residuals by day
+
+```{r}
+# aggregate predictions, actuals and residuals by day
+sum_demand3 = mergedata %>% group_by(date) %>% 
+  summarise(
+    preds_sumbyday = sum(preds),
+    demand_sumbyday = sum(demand),
+    rsd_byday = sum(preds) - sum(demand)
+    )
+
+# sum_demand3
+plot_ly(
+        x = sum_demand3$date, y= sum_demand3$preds_sumbyday,
+        type = "scatter",
+        mode = "lines",
+        name = "2023-Preds") %>% 
+  add_lines(sum_demand3$date, sum_demand3$demand_sumbyday, name = "2023-Actual") %>% 
+  layout(xaxis = list(title = "2023 Date"), yaxis = list(title = "Demand"))
+```
+
+```{r}
+plot_ly(sum_demand3, x = ~date, y = ~rsd_byday, type = "scatter", mode = "lines")%>%
+  layout(xaxis = list(title = "2023 Date"), yaxis = list(title = "Residual by day"))
+```
+
+### 5.3 MSE by day
+
+```{r}
+
+mergedata$mse_2 = (mergedata$preds - mergedata$demand)^2
+mse_demand = mergedata %>% group_by(date) %>% 
+  summarise(
+    preds_sumbyday = sum(preds),
+    demand_sumbyday = sum(demand),
+    mse_byday = mean(mse_2)
+    )
+# mse_demand
+plot_ly(mse_demand, x = ~date, y = ~mse_byday, type = "scatter", mode = "lines")%>%
+  layout(xaxis = list(title = "2023 Date"), yaxis = list(title = "MSE by day"))
+```
+
+Discussions:
+
+-   JAN 24th + Feb 24th, abnormally high demand? (24th 9:45 Adelaide soccer??)
