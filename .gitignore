@@ -49,4 +49,6 @@ vignettes/*.pdf
 .Renviron
 
 # Manual additions
-/models/
+*.joblib
+*.pickle
+*.pkl
