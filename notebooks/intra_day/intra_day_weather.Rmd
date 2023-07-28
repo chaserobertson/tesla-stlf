@@ -1,0 +1,106 @@
+---
+title: "intra_day_model5"
+output: pdf_document
+date: "2023-05-01"
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+```{r}
+df <- read.csv("data/merged_interpolated.csv")
+names(df)[c(1, 2, 10)] <- c('dt', 'Temp', 'Demand')
+
+# create timezone adjusted standard and daylight savings time
+ACDT <- as.POSIXct(paste(df$dt, "+1000"), format="%F %T %z", tz="Australia/South")
+ACST <- ACDT - ((as.POSIXlt(ACDT)$isdst > 0)*(60*60))
+ACST.lt <- as.POSIXlt(ACST)
+ACDT.lt <- as.POSIXlt(ACDT)
+
+# time normalised to [0, 1) via proportion of minutes per day
+df$Time <- (ACST.lt$hour*60 + ACST.lt$min) / (60*24)
+df$DSTTime <- df$Time + ((ACDT.lt$isdst!=0) / 24)
+
+df$dt <- as.POSIXct(df$dt, format="%F %T")
+
+# choose year 2022
+df <- df[ACST.lt$year == 122,]
+df$Year <- ((1:nrow(df) - 1) %% (365 * 48)) / (365 * 48)
+df$WtdTemp <- wtdtemp(df$DSTTime, df$Temp)
+
+# extract weekdays
+df.week <- df[ACDT.lt$wday %in% 1:5,]
+
+## Split into regression data and out of sample test data.
+train <- ((0*288)+1):(250*288)
+fitdata <- df.week[train,]
+#testdata <- df.week[-train,]
+
+head(fitdata)
+```
+
+Fit and summarise Model 5.
+
+```{r}
+library(mgcv)
+
+gamlwmod <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear <- gamm(gamlwmod,  data = fitdata)
+print(summary(wtdyear$gam))
+```
+
+Plot each smooth term.
+
+```{r}
+plot(wtdyear$gam, all.terms=T)
+```
+
+Fit again with smoothed radkjm2.
+
+```{r}
+gamlwmod_weather <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7) + s(radkjm2)
+wtdyear_weather <- gamm(gamlwmod_weather,  data = fitdata)
+print(summary(wtdyear_weather$gam))
+```
+
+```{r}
+plot(wtdyear_weather$gam, all.terms = T)
+```
+
+Fit again with all weather variables.
+
+```{r}
+gamlwmod_weather <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7) + radkjm2 + cloud8 + windk + wdir + humid + rainmm
+wtdyear_weather <- gamm(gamlwmod_weather,  data = fitdata)
+print(summary(wtdyear_weather$gam))
+```
+
+```{r}
+plot(wtdyear_weather$gam, all.terms = T)
+```
+
+Fit again with all weather variables, with radkjm2 smoothed.
+
+```{r}
+gamlwmod_weather <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7) + s(radkjm2) + cloud8 + windk + wdir + humid + rainmm
+wtdyear_weather <- gamm(gamlwmod_weather,  data = fitdata)
+print(summary(wtdyear_weather$gam))
+```
+
+```{r}
+plot(wtdyear_weather$gam, all.terms = T)
+```
+
+Fit again with all weather variables smoothed.
+
+```{r}
+gamlwmod_weather <- Demand ~  s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7) + s(radkjm2) + s(cloud8) + s(windk) + s(wdir) + s(humid) + s(rainmm)
+wtdyear_weather <- gamm(gamlwmod_weather,  data = fitdata)
+print(summary(wtdyear_weather$gam))
+```
+
+```{r}
+plot(wtdyear_weather$gam, all.terms = T)
+```
