@@ -11,7 +11,7 @@ knitr::opts_knit$set(root.dir="~/tesla-stlf")
 
 ```{r}
 source("notebooks/intra_day/Functions.R")
-df <- read.csv("data/merged_interpolated.csv")
+df <- read.csv("data/sa/merged_interpolated.csv")
 names(df)[c(1, 2, 10)] <- c('dt', 'Temp', 'Demand')
 
 # create timezone adjusted standard and daylight savings time

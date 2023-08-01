@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-data_path <- "../../data/merged_interpolated.csv"
+data_path <- "../../data/sa/merged_interpolated.csv"
 df <- read.csv(data_path)
 head(df)
 ```

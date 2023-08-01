@@ -14,7 +14,7 @@ require(mgcv)
 Quick preprocess of full weather-inclusive SA dataset.
 
 ```{r}
-sa.full <- read.csv("data/merged_interpolated.csv")
+sa.full <- read.csv("data/sa/merged_interpolated.csv")
 # drop pv_est and total_load
 df <- sa.full[,c(1:8, 10)]
 
