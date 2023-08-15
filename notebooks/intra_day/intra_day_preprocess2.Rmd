@@ -63,7 +63,7 @@ cat("Ideal steps:", round(c(1, 48*2) / (365*48), 2), '\n')
 Subset to just those variables necessary for modeling.
 
 ```{r}
-df.week <- df.week[,c("ACDT", "Demand", "Time", "DSTTime", "Year", "Temp")]
+df.week <- df.week[,c("ACDT", "Demand", "Time", "DSTTime", "Year", "Temp", "WtdTemp")]
 head(df.week)
 ```
 
