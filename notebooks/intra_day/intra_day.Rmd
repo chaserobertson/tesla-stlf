@@ -4,8 +4,12 @@ output: html_document
 date: "2023-05-01"
 ---
 
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
 ```{r}
-setwd("~/tesla-stlf")
 source("notebooks/intra_day/Functions.R")
 library(mgcv)
 ```
