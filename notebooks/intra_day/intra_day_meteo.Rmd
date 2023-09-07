@@ -1,0 +1,55 @@
+---
+title: "intra_day_meteo"
+output: html_document
+date: "2023-05-01"
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+Load 5-minute comprehensive preprocessed data from 2 Feb 2014 - 3 Feb 2015
+
+```{r}
+source("notebooks/intra_day/Functions.R")
+library(mgcv)
+
+## Load the data
+alldata <- read.csv("data/intra_day/original2014.csv")
+alldata$WtdTemp <- wtdtemp(alldata$DSTTime, alldata$Temp)
+alldata$StandardTime <- as.POSIXct(paste(alldata$StandardTime, "+1000"), 
+                                   format="%d-%m-%y %H:%M %z", tz='UTC')
+
+meteo <- read.csv("data/nsw/open_meteo_syd.csv", skip = 3)
+meteo$TempMeteo <- meteo$`temperature_2m...C.`
+meteo$time <- as.POSIXct(meteo$time, format="%Y-%m-%dT%H:%M", tz='UTC')
+
+fitdata <- merge(alldata[((0*288)+1):(250*288),], meteo, by.x = "StandardTime", by.y = "time")
+fitdata$WtdTempMeteo <- wtdtemp(fitdata$DSTTime, fitdata$TempMeteo)
+
+plotdata = subset(fitdata, Year < 0.1)
+plot(Temp ~ StandardTime, data=plotdata, type='l')
+lines(TempMeteo ~ StandardTime, data=plotdata, col='red')
+```
+
+Fit and compare original model, hourly (not averaged, just hourly points), and hourly using Open Meteo weather data.
+
+```{r}
+gamlwmod <- Demand ~ s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+wtdyear <- gamm(gamlwmod,  data = fitdata)
+
+wtdyear_hourly <- gamm(
+    Demand ~  s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + s(Year, bs = "tp"),
+    data = fitdata)
+
+wtdyear_hourly_meteo <- gamm(
+    Demand ~  s(DSTTime, bs = "cc") + s(WtdTempMeteo, bs = "tp") + s(Year, bs = "tp"),  
+    data = fitdata)
+
+c(summary(wtdyear$gam)$r.sq, summary(wtdyear_hourly$gam)$r.sq, summary(wtdyear_hourly_meteo$gam)$r.sq)
+```
+
+Basically the same across the board. I suppose open meteo can help us bridge the gap.
+
+
