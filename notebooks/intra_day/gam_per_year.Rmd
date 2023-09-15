@@ -1,0 +1,82 @@
+---
+title: "intra_day_meteo"
+output: html_document
+date: "2023-05-01"
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+Load 5-minute comprehensive preprocessed data from 2 Feb 2014 - 3 Feb 2015
+
+```{r}
+source("notebooks/intra_day/Functions.R")
+library(mgcv)
+library(parallel)
+```
+
+```{r}
+## Load the data
+region <- "sa"
+
+if (region == "nsw") {
+    data_file <- "data/nsw/nsw_nem.csv"
+    tz <- "Australia/Sydney"
+    weather_file <- "data/nsw/open_meteo_syd.csv"
+} else if (region == "sa") {
+    data_file <- "data/sa/sa_nem.csv"
+    tz <- "Australia/Adelaide"
+    weather_file <- "data/sa/open_meteo_ade.csv"
+}
+
+alldata <- read.csv(data_file)[,2:3]
+#alldata$ACDT <- as.POSIXct(paste(alldata$SETTLEMENTDATE, "+1000"), format="%Y/%m/%d %T %z", tz=tz)
+#alldata$ACST <- alldata$ACDT - ((as.POSIXlt(alldata$ACDT)$isdst > 0)*(60*60))
+alldata$UTC <- as.POSIXct(paste(alldata$SETTLEMENTDATE, "+1000"), format="%Y/%m/%d %T %z", tz='UTC')
+alldata$ACDT <- as.POSIXct(alldata$UTC, tz=tz)
+alldata$ACST <- alldata$ACDT - ((as.POSIXlt(alldata$ACDT)$isdst > 0)*(60*60))
+
+alldata$ACST.lt <- as.POSIXlt(alldata$ACST)
+alldata$ACDT.lt <- as.POSIXlt(alldata$ACDT)
+alldata$Time <- (alldata$ACST.lt$hour * 60 + alldata$ACST.lt$min) / (60 * 24)
+alldata$DSTTime <- (alldata$ACDT.lt$hour * 60 + alldata$ACDT.lt$min) / (60 * 24)
+alldata$Year <- alldata$ACDT.lt$yday / 365
+alldata$wday <- alldata$ACDT.lt$wday
+
+meteo <- read.csv(weather_file, skip = 3)
+meteo$Temp <- meteo$`temperature_2m...C.`
+meteo$time <- as.POSIXct(meteo$time, format="%Y-%m-%dT%H:%M", tz='UTC')
+
+alldata$key <- as.numeric(alldata$ACST)
+meteo$key <- as.numeric(meteo$time)
+
+fitdata <- merge(alldata, meteo)#, by.x = "ACST", by.y = "time")
+fitdata$WtdTemp <- wtdtemp(fitdata$DSTTime, fitdata$Temp)
+fitdata$Demand <- fitdata$TOTALDEMAND
+
+fitdata
+```
+
+```{r}
+plotdata = fitdata[1:100,]
+plot(Temp ~ ACDT, data=plotdata, type='l')
+lines(Demand/max(Demand)*32 ~ ACDT, data=plotdata, col='red')
+```
+
+```{r}
+gamlwmod <- Demand ~ s(DSTTime, bs = "cc", k = 12) + s(WtdTemp, bs = "tp", k =8) + s(Year, bs = "tp", k =7)
+
+fit.gamm <- function(year) {
+    train <- subset(fitdata, ACDT.lt$year == year - 1900 & wday %in% 1:5)
+    wtdyear <- gamm(gamlwmod,  data = train)
+    summary(wtdyear$gam)$r.sq
+}
+
+results <- data.frame(year=2014:2022)
+results$gam.r.sq <- unlist(mclapply(results$year, fit.gamm, mc.cores=8))
+plot(gam.r.sq ~ year, data=results, type='l')
+```
+
+
