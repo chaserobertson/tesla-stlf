@@ -16,6 +16,7 @@ print_metrics <- function(true, pred, title) {
         "MAE:", mae(true, pred),
         "RMSE:", rmse(true, pred), fill=T)
 }
+set.seed(12345)
 ```
 
 Quick preprocess of data.
@@ -136,3 +137,4 @@ GAM+RF train
 RMSE: 52.26313 MAPE: 0.03379186 MAE: 38.5281
 GAM+RF test
 RMSE: 205.6147 MAPE: 0.1566431 MAE: 151.1194
+
