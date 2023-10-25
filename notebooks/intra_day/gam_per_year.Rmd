@@ -19,7 +19,7 @@ library(tidyverse)
 
 ```{r}
 ## Load the data
-region <- "nsw"
+region <- "sa"
 
 if (region == "nsw") {
     data_file <- "data/nsw/nsw_nem.csv"
@@ -74,14 +74,19 @@ names(fitdata)
 ```{r}
 set.seed(123)
 
-gamlwmod <- Demand ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + s(Year, bs = "tp")
-rad.form <- Demand ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + s(Year, bs = "tp") + 
+gamlwmod <- Demand ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + 
+    s(Year, bs = "tp")
+rad.form <- Demand ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + 
+    s(Year, bs = "tp") + 
     s(direct_normal_irradiance..W.m.., bs="tp")
-all.form <- Demand ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + s(Year, bs = "tp") + 
-    s(direct_normal_irradiance..W.m.., bs="tp") + #s(direct_radiation..W.m.., bs="tp") + 
-    s(shortwave_radiation..W.m.., bs="tp") + s(windspeed_10m..km.h., bs="tp") + 
-    s(winddirection_10m....) + s(rain..mm.) + s(diffuse_radiation..W.m..) +
-    s(cloudcover....) + s(relativehumidity_2m....)
+all.form <- Demand ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + 
+    s(Year, bs = "tp") + s(direct_normal_irradiance..W.m.., bs="tp") + 
+    s(diffuse_radiation..W.m..) + 
+    s(shortwave_radiation..W.m.., bs="tp") + 
+    s(windspeed_10m..km.h., bs="tp") + 
+    s(winddirection_10m....) + s(rain..mm.) + s(cloudcover....) + 
+    s(relativehumidity_2m....) #+ s(direct_radiation..W.m.., bs="tp") + 
+    # direct rad too highly correlated with direct normal irrad
 
 fit.gamm <- function(start, form) {
     train <- subset(fitdata[start:(start + 365*24),], wday %in% 1:5)
@@ -89,8 +94,9 @@ fit.gamm <- function(start, form) {
     summary(wtdyear$gam)$r.sq
 }
 
-n_splits <- 22
-start <- head(seq(1, nrow(fitdata), by = as.integer(nrow(fitdata) / n_splits)), -2)
+n_splits <- 20
+end <- nrow(fitdata) - 365*24
+start <- seq(1, end, by = as.integer(end / n_splits))
 results <- data.frame(start)
 results$train_begin <- fitdata[results$start, 'ACDT']
 results$gamm <- unlist(mclapply(results$start, fit.gamm, form=gamlwmod, mc.cores=8))
@@ -104,6 +110,6 @@ results |>
     geom_line() + geom_point() +
     scale_colour_viridis_d() +
     theme_minimal() + theme(aspect.ratio=1/3)
-ggsave(paste0('plots/gamm_r2_', region, '.png'))
+ggsave(paste0('plots/gamm_r2_', region, '.png'), width=9, height=3)
 ```
 

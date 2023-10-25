@@ -1,0 +1,151 @@
+---
+title: "intra_day_meteo"
+output: html_document
+date: "2023-05-01"
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+```{r}
+source("notebooks/intra_day/Functions.R")
+library(mgcv)
+library(parallel)
+library(ggplot2)
+library(tidyverse)
+
+
+rmse <- function(true, pred) {sqrt(mean((true - pred)^2))}
+mape <- function(true, pred) {mean((abs(true - pred) / true))}
+mae <- function(true, pred) {mean(abs(true - pred))}
+all_metrics <- function(true, pred) {
+    sapply(c(rmse, mape, mae), function(x) do.call(x, list(true=true, pred=pred)))
+}
+```
+
+```{r}
+## Load the data
+region <- "sa"
+
+if (region == "nsw") {
+    data_file <- "data/nsw/merged.csv"
+    tz <- "Australia/Sydney"
+} else if (region == "sa") {
+    data_file <- "data/sa/merged.csv"
+    tz <- "Australia/Adelaide"
+}
+
+alldata <- read.csv(data_file)
+alldata$UTC <- as.POSIXct(paste(alldata$datetime, "+1000"), format="%F %T %z", tz='UTC')
+alldata$ACDT <- as.POSIXct(alldata$UTC, tz=tz)
+alldata$ACDT.lt <- as.POSIXlt(alldata$ACDT)
+
+alldata$ACST <- alldata$ACDT - ((alldata$ACDT.lt$isdst > 0)*(60*60))
+alldata$ACST.lt <- as.POSIXlt(alldata$ACST)
+
+alldata$Time <- (alldata$ACST.lt$hour * 60 + alldata$ACST.lt$min) / (60 * 24)
+alldata$DSTTime <- (alldata$ACDT.lt$hour * 60 + alldata$ACDT.lt$min) / (60 * 24)
+alldata$Year <- alldata$ACDT.lt$yday / 365
+alldata$wday <- alldata$ACDT.lt$wday
+
+alldata$rainmm[is.na(alldata$rainmm)] <- 0
+alldata$cloud8[is.na(alldata$cloud8)] <- 0
+alldata$cloud8 <- as.ordered(alldata$cloud8)
+alldata$tempc[is.na(alldata$tempc)] <- mean(alldata$tempc, na.rm=T)
+
+fitdata <- alldata
+fitdata$WtdTemp <- wtdtemp(fitdata$DSTTime, fitdata$tempc)
+
+fitdata
+```
+
+```{r}
+set.seed(123)
+
+gamlwmod <- net_load ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + 
+    s(Year, bs = "tp")
+rad.form <- net_load ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + 
+    s(Year, bs = "tp") + s(radkjm2)
+all.form <- net_load ~ s(DSTTime, bs = "cc") + s(WtdTemp, bs = "tp") + 
+    s(Year, bs = "tp") + s(radkjm2) + cloud8 + s(windk) +
+    s(wdir) + s(humid) + s(rainmm)
+gam.forms <- c(gamm=gamlwmod, gamm.rad=rad.form, gamm.all=all.form)
+
+rf.form <- net_load ~ DSTTime + WtdTemp + Year + radkjm2 + tempc + humid + 
+    cloud8 + rainmm + windk + wdir + wday
+res.form <- residual ~ radkjm2 + tempc + humid + cloud8 + rainmm + 
+    windk + wdir + wday
+
+fit <- function(start) {
+    end <- (start + 365*24)
+    train <- subset(fitdata[start:end,], wday %in% 1:5)
+    test <- subset(fitdata[(end+1):(end+24*7+1),], wday %in% 1:5)
+    true <- test$net_load
+    
+    rf <- randomForest::randomForest(rf.form, data = train)
+    pred <- predict(rf, test)
+    results <- data.frame(
+        train_begin = fitdata[start, 'ACDT'], 
+        model = "rf",
+        rmse = rmse(true, pred), 
+        mape = mape(true, pred),
+        mae = mae(true, pred)
+    )
+    
+    for (name in names(gam.forms)) {
+        wtdyear <- mgcv::gamm(gam.forms[[name]],  data = train)
+        
+        pred <- predict(wtdyear$gam, test)
+        results <- rbind(results, data.frame(
+            train_begin = fitdata[start, 'ACDT'], 
+            model = name,
+            rmse = rmse(true, pred), 
+            mape = mape(true, pred),
+            mae = mae(true, pred)
+        ))
+        if (name != "gamm.all") {
+            train$residual <- train$net_load - predict(wtdyear$gam, train)
+            res.rf <- randomForest::randomForest(res.form, data = train)
+            
+            test$residual <- true - pred
+            res.pred <- pred + predict(res.rf, test)
+            
+            results <- rbind(results, data.frame(
+                train_begin = fitdata[start, 'ACDT'], 
+                model = paste0("res.", name),
+                rmse = rmse(true, res.pred), 
+                mape = mape(true, res.pred),
+                mae = mae(true, res.pred)
+            ))
+        }
+    }
+    results
+}
+
+n_splits <- 20
+end <- nrow(fitdata) - (365+7)*24
+start <- seq(1, end, by = as.integer(end / n_splits))
+system.time(results <- do.call("rbind", mclapply(start, fit, mc.cores=8)))
+```
+
+```{r}
+results |> 
+    pivot_longer(cols = c("rmse", "mape", "mae"), names_to = "metric") |>
+    mutate(metric = toupper(metric)) |>
+    #mutate(name = fct_reorder2(name, train_begin, r.sq)) |>
+    ggplot(aes(x = train_begin, y = value, colour = model)) + 
+    facet_wrap(~ metric, ncol = 1, scales = "free_y") +
+    geom_point() + geom_line() +
+    scale_colour_viridis_d() +
+    theme_minimal() + theme(aspect.ratio=1/9)
+ggsave(paste0('plots/gamm_residual_', region, '.png'), width=9, height=4)
+```
+
+```{r}
+results |> 
+    group_by(model) |> 
+    summarise(mae=mean(mae), mape=mean(mape), rmse=mean(rmse))
+```
+
