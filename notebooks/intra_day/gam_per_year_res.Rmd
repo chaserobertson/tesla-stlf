@@ -1,7 +1,5 @@
 ---
-title: "intra_day_meteo"
 output: html_document
-date: "2023-05-01"
 ---
 
 ```{r setup, include=F}
@@ -114,7 +112,7 @@ fit <- function(start) {
             
             results <- rbind(results, data.frame(
                 train_begin = fitdata[start, 'ACDT'], 
-                model = paste0("res.", name),
+                model = paste0("rf.res.", name),
                 rmse = rmse(true, res.pred), 
                 mape = mape(true, res.pred),
                 mae = mae(true, res.pred)
@@ -130,22 +128,25 @@ start <- seq(1, end, by = as.integer(end / n_splits))
 system.time(results <- do.call("rbind", mclapply(start, fit, mc.cores=8)))
 ```
 
-```{r}
+```{r fig.height=6, fig.width=8}
+model_order <- c("gamm", "rf.res.gamm", "gamm.rad",
+                 "rf.res.gamm.rad", "gamm.all", "rf")
+
 results |> 
     pivot_longer(cols = c("rmse", "mape", "mae"), names_to = "metric") |>
-    mutate(metric = toupper(metric)) |>
-    #mutate(name = fct_reorder2(name, train_begin, r.sq)) |>
-    ggplot(aes(x = train_begin, y = value, colour = model)) + 
+    mutate(metric = toupper(metric), model = fct_relevel(model, model_order)) |>
+ggplot(aes(x = train_begin, y = value, colour = model)) + 
     facet_wrap(~ metric, ncol = 1, scales = "free_y") +
     geom_point() + geom_line() +
-    scale_colour_viridis_d() +
-    theme_minimal() + theme(aspect.ratio=1/9)
-ggsave(paste0('plots/gamm_residual_', region, '.png'), width=9, height=4)
+    scale_colour_brewer(type='qual', palette='Paired') +
+    theme_minimal()
+ggsave(paste0('plots/gamm_residual_', region, '.png'), width=8, height=6)
 ```
 
 ```{r}
 results |> 
     group_by(model) |> 
-    summarise(mae=mean(mae), mape=mean(mape), rmse=mean(rmse))
+    summarise(mae=mean(mae), mape=mean(mape), rmse=mean(rmse)) |>
+    arrange(desc(mape))
 ```
 
