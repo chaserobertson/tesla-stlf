@@ -1,0 +1,83 @@
+---
+title: "intra_day_meteo"
+output: html_document
+date: "2023-05-01"
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+```{r}
+source("notebooks/intra_day/Functions copy.R")
+library(ggplot2)
+library(tidyverse)
+```
+
+```{r}
+## Load the data
+region <- "nsw"
+
+if (region == "nsw") {
+    data_file <- "data/nsw/nsw_nem.csv"
+    tz <- "Australia/Sydney"
+    weather_file <- "data/nsw/open_meteo_syd.csv"
+} else if (region == "sa") {
+    data_file <- "data/sa/sa_nem.csv"
+    tz <- "Australia/Adelaide"
+    weather_file <- "data/sa/open_meteo_ade.csv"
+}
+
+alldata <- read.csv(data_file)[,2:3]
+alldata$UTC <- as.POSIXct(paste(alldata$SETTLEMENTDATE, "+1000"), format="%Y/%m/%d %T %z", tz='UTC')
+alldata$ACDT <- as.POSIXct(alldata$UTC, tz=tz)
+alldata$ACST <- alldata$ACDT - ((as.POSIXlt(alldata$ACDT)$isdst > 0)*(60*60))
+
+alldata$ACST.lt <- as.POSIXlt(alldata$ACST)
+alldata$ACDT.lt <- as.POSIXlt(alldata$ACDT)
+alldata$Time <- (alldata$ACST.lt$hour * 60 + alldata$ACST.lt$min) / (60 * 24)
+alldata$DSTTime <- (alldata$ACDT.lt$hour * 60 + alldata$ACDT.lt$min) / (60 * 24)
+alldata$Year <- alldata$ACDT.lt$yday / 365
+alldata$wday <- alldata$ACDT.lt$wday
+
+meteo <- read.csv(weather_file, skip = 3)
+meteo$Temp <- meteo$`temperature_2m...C.`
+meteo$time <- as.POSIXct(meteo$time, format="%Y-%m-%dT%H:%M", tz='UTC')
+
+alldata$key <- as.numeric(alldata$ACST)
+meteo$key <- as.numeric(meteo$time)
+
+fitdata <- merge(alldata, meteo)#, by.x = "ACST", by.y = "time")
+fitdata$WtdTemp <- wtdtemp(fitdata$DSTTime, fitdata$Temp)
+```
+
+```{r}
+start = 3000
+width = 24*2
+inds = start:(start+width)
+time = fitdata[inds, "ACDT"]
+temp = fitdata[inds, c("WtdTemp", "Temp")]
+matplot(x=time, y=temp, type='l')
+legend(x='topright', legend=c("Unweighted", "Weighted"), lty=2:1, col=2:1)
+```
+
+```{r}
+start = 3000
+width = 24*2
+inds = start:(start+width)
+DSTTime = fitdata[13:36, "DSTTime"]
+temps = seq(0, 40, 5)
+Weighted_Temp = sapply(temps, function(x) wtdtemp(DSTTime, rep(x, length(DSTTime))))
+
+png("plots/wtdtemp.png", width=600, height=400)
+matplot(x=DSTTime, y=Weighted_Temp, type='l', lty=1:9, col=1:9, 
+        xlim=c(0, 1.1))
+legend(x='right', legend=rev(temps), lty=rev(1:9), col=rev(1:9), title="Temp")
+dev.off()
+
+matplot(x=DSTTime, y=Weighted_Temp, type='l', lty=1:9, col=1:9, 
+        xlim=c(0, 1.1))
+legend(x='right', legend=rev(temps), lty=rev(1:9), col=rev(1:9), title="Temp")
+```
+
