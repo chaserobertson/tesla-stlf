@@ -31,7 +31,7 @@ if (region == "nsw") {
     data_file <- "data/nsw/merged.csv"
     tz <- "Australia/Sydney"
 } else if (region == "sa") {
-    data_file <- "data/sa/merged.csv"
+    data_file <- "data/sa/merged2.csv"
     tz <- "Australia/Adelaide"
 }
 
@@ -56,7 +56,7 @@ alldata$tempc[is.na(alldata$tempc)] <- mean(alldata$tempc, na.rm=T)
 fitdata <- alldata
 fitdata$WtdTemp <- wtdtemp(fitdata$DSTTime, fitdata$tempc)
 
-fitdata
+head(fitdata)
 ```
 
 ```{r}
@@ -128,19 +128,19 @@ start <- seq(1, end, by = as.integer(end / n_splits))
 system.time(results <- do.call("rbind", mclapply(start, fit, mc.cores=8)))
 ```
 
-```{r fig.height=6, fig.width=8}
+```{r fig.width=6, fig.height=5}
 model_order <- c("gamm", "rf.res.gamm", "gamm.rad",
                  "rf.res.gamm.rad", "gamm.all", "rf")
 
 results |> 
     pivot_longer(cols = c("rmse", "mape", "mae"), names_to = "metric") |>
     mutate(metric = toupper(metric), model = fct_relevel(model, model_order)) |>
-ggplot(aes(x = train_begin, y = value, colour = model)) + 
+ggplot(aes(x = train_begin, y = value, colour = model, group=model)) + 
     facet_wrap(~ metric, ncol = 1, scales = "free_y") +
     geom_point() + geom_line() +
     scale_colour_brewer(type='qual', palette='Paired') +
     theme_minimal()
-ggsave(paste0('plots/gamm_residual_', region, '.png'), width=8, height=6)
+ggsave(paste0('plots/gamm_residual_', region, '.png'), width=6, height=5)
 ```
 
 ```{r}
