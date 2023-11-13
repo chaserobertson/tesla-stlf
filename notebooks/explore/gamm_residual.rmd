@@ -1,0 +1,109 @@
+
+# SA GAMM
+Apply GAMM to all years of SA data including weather covariates
+
+```{r setup, include=F}
+knitr::opts_chunk$set(root.dir="~/tesla-stlf")
+knitr::opts_knit$set(root.dir="~/tesla-stlf")
+```
+
+```{r}
+require(mgcv)
+```
+
+Quick preprocess of full weather-inclusive SA dataset.
+
+```{r}
+sa.full <- read.csv("data/sa/merged_interpolated.csv")
+df <- sa.full
+
+# make year and Time from datetime
+df$ACDT <- as.POSIXct(paste(df$datetime, "+1000"), format="%F %T %z", tz="Australia/South")
+df$ACST <- df$ACDT - ((as.POSIXlt(df$ACDT)$isdst > 0) * (60 * 60))
+
+ACST.lt <- as.POSIXlt(df$ACST)
+ACDT.lt <- as.POSIXlt(df$ACDT)
+
+# time normalised to [0, 1) via proportion of minutes per day
+df$Time <- (ACST.lt$hour*60 + ACST.lt$min) / (60*24)
+df$DSTTime <- df$Time + ((ACDT.lt$isdst!=0) / 24)
+df$Year <- (ACST.lt$yday + df$Time) / 365
+df$weekday <- ACDT.lt$wday
+
+head(df)
+```
+
+Fit GAMM with all available covariates and show R^2.
+
+```{r}
+full.form <- net_load ~ s(weekday, bs="cc", k=7) + s(DSTTime, bs = "cc") + s(tempc, bs = "tp") + s(Year, bs = "cc") + s(humid, bs="tp") + s(radkjm2, bs="tp")
+
+full.gamm <- mgcv::gamm(full.form, data=df)
+summary(full.gamm$gam)
+```
+
+Plot smooth terms
+
+```{r}
+plot(full.gamm$gam, scale=0, all.terms=T)
+```
+
+
+```{r}
+perf <- data.frame(year=2018:2022, r.sq=0)
+for (year in perf$year) {
+  mdl <- gamm(full.form,  data = df[ACDT.lt$year+1900 == year,])
+  perf[perf$year==year, "r.sq"] <- summary(mdl$gam)$r.sq
+}
+perf
+```
+
+```{r}
+df.2022 <- df[ACDT.lt$year+1900 == 2022,]
+gam.2022 <- mgcv::gamm(full.form, data=df.2022)
+rmse <- function(true, pred) {sqrt(mean((true - pred)^2))}
+mape <- function(true, pred) {mean((abs(true - pred) / true))}
+pred.2022 <- predict(gam.2022$gam, df.2022)
+true.2022 <- df.2022$net_load
+c(rmse(true.2022, pred.2022), mape(true.2022, pred.2022))
+```
+
+```{r}
+df.2023 <- df[ACDT.lt$year+1900 == 2023,]
+
+pred.2023 <- predict(gam.2022$gam, df.2023)
+true.2023 <- df.2023$net_load
+c(rmse(true.2023, pred.2023), mape(true.2023, pred.2023))
+```
+
+```{r}
+df.2022$residual <- true.2022 - pred.2022
+lm.2022 <- lm(residual ~ radkjm2 + cloud8 + humid + rainmm + windk + wdir, data=df.2022)
+summary(lm.2022)
+plot(lm.2022)
+```
+
+```{r}
+res.pred.2022 <- predict(lm.2022, df.2022)
+c(rmse(true.2022, pred.2022+res.pred.2022), mape(true.2022, pred.2022+res.pred.2022))
+```
+
+```{r}
+df.2023$residual <- true.2023 - pred.2023
+res.pred.2023 <- predict(lm.2022, df.2023)
+
+c(rmse(true.2023, pred.2023+res.pred.2023), mape(true.2023, pred.2023+res.pred.2023))
+```
+
+```{r}
+rf.2022 <- randomForest::randomForest(residual ~ weekday + radkjm2 + cloud8 + humid + rainmm + windk + wdir, data=df.2022)
+summary(rf.2022)
+plot(rf.2022)
+
+res.pred.2022 <- predict(rf.2022, df.2022)
+cat(rmse(true.2022, pred.2022 + res.pred.2022), mape(true.2022, pred.2022 + res.pred.2022), fill=T)
+
+res.pred.2023 <- predict(rf.2022, df.2023)
+cat(rmse(true.2023, pred.2023 + res.pred.2023), mape(true.2023, pred.2023 + res.pred.2023), fill=T)
+```
+

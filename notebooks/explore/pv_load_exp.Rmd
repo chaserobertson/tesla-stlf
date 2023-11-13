@@ -1,0 +1,119 @@
+---
+title: "pv_load_exp"
+output: html_document
+date: "2023-03-29"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Specify missing value placeholder, data directory, and data filenames vector with shortnames.
+
+```{r}
+na_str <- "-99"
+data_path <- "../data"
+data_filenames <- c(
+  "au_adelaide_act.csv",
+  "au_sa_iso_satellite_pv_load_act.csv",
+  "au_sa_load_act.csv",
+  "au_sa_total_load_act.csv",
+  "au_sa_total_load_5_min.csv"
+)
+names(data_filenames) <- c("adelaide", "pv", "load", "total", "total_5")
+```
+
+Create convenience wrapper to read any of the listed files from the data directory path.
+
+```{r}
+read <- function(shortname, ...) {
+  filename <- paste(data_path, data_filenames[shortname], sep="/")
+  read.csv(filename, na.strings = na_str, ...)
+}
+```
+
+Read in total load data from 30-minute measurement era.
+
+```{r}
+pv <- read("pv")
+summary(pv)
+```
+
+Convert date and time to proper datetimes.
+
+```{r}
+pv$datetime <- as.POSIXct(as.character(pv$date), format = "%Y%m%d", tz = "GMT")
+pv$datetime <- pv$datetime + (pv$time %/% 100)*60*60 + (pv$time %% 100)*60
+summary(pv)
+```
+
+Sort by datetime and check conversion success - all increments _should_ be 30 mins.
+
+```{r}
+pv <- pv[order(pv$datetime),]
+unique(diff(pv$datetime))
+```
+
+Investigate load_act missing values.
+
+```{r}
+plot(load_act ~ datetime, data=pv, type='l')
+points(is.na(load_act)*100 ~ datetime, data=pv, col=is.na(load_act)*2)
+```
+
+Summarise set of observations with missing load.
+
+```{r}
+pv.missing <- pv[is.na(pv$load_act),]
+summary(pv.missing)
+```
+
+Visualise datetime of missing values by distance from previous missing value
+
+```{r}
+plot(jitter(c(0, diff(pv.missing$datetime)), 500) ~ pv.missing$datetime)
+```
+
+```{r}
+nrow(pv.missing[pv.missing$date < '20220101',])
+```
+
+```{r fig.height=15}
+par(mfrow=c(5,1), mar=c(2,4,0,0))
+for (y in 2018:2022) {
+  window <- paste(y:(y+1), '0101', sep='')
+  annual <- pv[pv$date >= window[1] & pv$date < window[2],]
+  plot(load_act ~ datetime, data=annual, type='l', 
+       ylab=paste(y, 'PV load - missing', sum(is.na(annual$load_act))))
+  points(is.na(load_act)*100 ~ datetime, data=annual, col=is.na(load_act)*2)
+}
+```
+
+Can these missing values be filled with fresh data from the source?
+
+```{r}
+pv[pv$date == '20220623' & pv$time >= 1300 & pv$time <= 1400,]
+```
+
+```csv
+X,X,X,X,INTERVAL_DATETIME,REGIONID,POWER,QUALITY_INDICATOR,TYPE,LASTCHANGED
+D,ROOFTOP,ACTUAL,2,"2022/06/23 13:00:00",SA1,738.42,0.6,SATELLITE,"2022/06/23 13:20:28"
+D,ROOFTOP,ACTUAL,2,"2022/06/23 13:30:00",SA1,712.449,0.6,SATELLITE,"2022/06/23 13:50:27"
+D,ROOFTOP,ACTUAL,2,"2022/06/23 14:00:00",SA1,672.219,0.6,SATELLITE,"2022/06/23 14:20:25"
+```
+
+The numbers exist at the source, but is this the same source e.g. do existing values match?
+
+```{r}
+pv[pv$date == '20220723' & pv$time >= 1300 & pv$time <= 1400,]
+```
+
+```csv
+D,ROOFTOP,ACTUAL,2,"2022/07/23 13:00:00",SA1,963.58,1,MEASUREMENT,"2022/07/23 13:19:35"
+D,ROOFTOP,ACTUAL,2,"2022/07/23 13:30:00",SA1,955.203,1,MEASUREMENT,"2022/07/23 13:49:38"
+```
+
+Alas, they do not. The numbers we have may be Forecasted, or actuals estimated at a different time.
+
+The option to retrieve missing values from the source remains open but held until source details confirmed.
